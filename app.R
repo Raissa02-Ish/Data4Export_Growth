@@ -31,9 +31,65 @@ Export_Data <- read_xlsx("www/Export_Data.xlsx")
 top_commodities <- read_xlsx("www/countries.xlsx", sheet = 3, .name_repair = "minimal")
 Export_Income_Forecast<- read.csv("www/Export_Income_Forecast.csv")
 Re_Export_Forecast <- read.csv("www/Re_Export_Forecast.csv")
-forex_data<- read.csv("www/forex_data.csv")
-continents<- read_xlsx("www/countries.xlsx", sheet = 4, .name_repair = "minimal")
+contribution<- read_xlsx("www/countries.xlsx", sheet = "Sheet1")
+ continents<- read_xlsx("www/countries.xlsx", sheet = 4, .name_repair = "minimal")
 custom_colors <- c("darkgreen", "darkgrey", "grey", "#38211E", "#92340b")
+#=========================================================================
+# ======================================================
+# Scrapping NBR ----
+scrape_nbr <- function() {
+  library(rvest)
+  library(dplyr)
+  library(chromote)
+  library(readr)
+  
+  b <- ChromoteSession$new()
+  on.exit(b$close(), add = TRUE)
+  
+  url <- "https://www.bnr.rw/exchangeRate"
+  b$Page$navigate(url)
+  b$Page$loadEventFired(timeout_ = 20000)
+  Sys.sleep(10)
+  
+  page <- b$DOM$getDocument()
+  html <- b$DOM$getOuterHTML(nodeId = page$root$nodeId)[["outerHTML"]]
+  page_html <- read_html(html)
+  
+  forex_data <- page_html %>%
+    html_element("table") %>%
+    html_table()
+  
+  forex_data <- forex_data %>%
+    mutate(scraped_at = Sys.Date())
+  
+  save_path <- "www/NBR_rates.csv"
+  
+  if (file.exists(save_path)) {
+    old_data <- read_csv(save_path, show_col_types = FALSE)
+    combined <- bind_rows(old_data, forex_data) %>%
+      distinct()
+    write_csv(combined, save_path)
+  } else {
+    write_csv(forex_data, save_path)
+  }
+  
+  return(forex_data)
+}
+#=============Scraping + Load Cached File ==========================
+save_path <- "www/NBR_rates.csv"
+today <- Sys.Date()
+
+if (!file.exists(save_path)) {
+  forex_data <- scrape_nbr()
+} else {
+  existing <- readr::read_csv(save_path, show_col_types = FALSE)
+  
+  if (!(today %in% existing$scraped_at)) {
+    forex_data <- scrape_nbr()
+  } else {
+    forex_data <- existing
+  }
+}
 #=========================================================================
 #Setting Prophet 
 Category_Export<- read_xlsx("www/Category_Export_2020.xlsx")
@@ -94,20 +150,6 @@ plot_df <- plot_df %>%
     yhat = round(yhat, 2),                    # round values to 2 decimals
     type = factor(type, levels = c("Observed", "Forecast"))
   )
-#=========================================================================
-# Reactive for trade news
-trade_news <- reactive({
-  c(
-    "In Early October 2025, the First Shippment of Rwandan Wolfram arrived in US opening a new market for critical minerals.",
-    "Rwanda Exports Declined by -35.64% in Q2 2025 Y-to-Y, Mostly because of a massive reduction in Export to UAE.",
-    "DR Congo remain as the 2nd Largest Export Market for Rwandan Goods in first half of 2025",
-    "Tea Exports Reach Record High, Coffee Prices Surge 15% in International Markets",
-    "Rwanda Signs New Trade Agreement with other EAC countries to Boost Regional Exports aiming to achieve 40% of Intra-EAC trade by 2030.",
-    "Manufacturing Exports Show Strong Growth, Increasing by 12% Year-over-Year",
-    "High-grade lithium deposits found in Rwanda Expected to Boost Mining Exports.",
-    "Rwanda's Trade Deficit drops by 17% in July 2025."
-  )
-})
 #==============================================
 ui <- navbarPage(
   # ---------------- Header with Logo + Tabs (right) ----------------
@@ -115,8 +157,8 @@ ui <- navbarPage(
     style = "display: flex; align-items: center; width: 100%;",
     # Logo 
     div(
-      img(src = "logo.jpg", height = "50px"),
-      style = "margin-right: 120px;" 
+      img(src = "logo.jpg", height = "60px"),
+      style = "margin-right: 120px;margin-top: -5px" 
     )
   ),
   
@@ -128,13 +170,36 @@ ui <- navbarPage(
            fluidRow(
              column(
                width = 12,
-               div(class = "hero", id = "hero-section",
-                   style = "margin-top: -18px;",
-                   h1("RWANDA EXPORT DATA"),
-                   h3("Data for Export Growth")
+               div(
+                 class = "hero", id = "hero-section",
+                 style = "
+    position: fixed;
+    top: 80px; /* same as your header height */
+    left: 0;
+    width: 100%;
+    height: 315px;
+    color: white;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    background-image: url('background1.jpg');
+    background-size: cover;
+    background-position: center;
+    overflow: hidden;
+    z-index: 1500; /* below header, above content */
+    transition: background-image 1s ease-in-out;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  ",
+                 div(class = "clouds"),
+                 h1("RWANDA EXPORT PLATFORM", 
+                    style = "font-size: 48px; font-weight: 900; text-transform: uppercase; color: white; text-shadow: 3px 3px 8px rgba(0,0,0,0.7); margin-bottom: 10px;"),
+                 h3("Data for Export Growth",
+                    style = "font-size: 22px; font-weight: lighter; color: white; text-shadow: 2px 2px 6px rgba(0,0,0,0.6); margin-top: 0;"),
                )
              )
            ),
+           tags$div(style = "height: 370px;"),
            # Info boxes below ----
            br(),
            fluidRow(
@@ -159,9 +224,9 @@ ui <- navbarPage(
                )
              ),
              
-             # Export Revenue From Minerals Box
+             # Export Revenue From Top Exports Box
              column(
-               width = 4,
+               width = 2,
                div(style = "background: linear-gradient(135deg, #1e3c1e, #2d5a2d); 
                 padding: 20px; 
                 border-radius: 10px; 
@@ -172,17 +237,17 @@ ui <- navbarPage(
                 display: flex;
                 flex-direction: column;
                 justify-content: center;",
-                   tags$h3("$ 135.39 M", style = "margin: 0; font-size: 22px; font-weight: bold;"),
+                   tags$h3("$ 441.8 M", style = "margin: 0; font-size: 22px; font-weight: bold;"),
                    tags$p("Export Revenue 2024", style = "margin: 5px 0; font-size: 12px;"),
-                   tags$p("35.43% Decline From 2023", style = "margin: 5px 0; font-size: 12px; color: #90EE90;"),
+                   tags$p("9.4% Increase From 2023", style = "margin: 5px 0; font-size: 12px; color: #90EE90;"),
                    tags$hr(style = "border-color: #4CAF50; margin: 10px 0;"),
-                   tags$p("Export Revenue From Minerals", style = "margin: 0; font-size: 10px; font-weight: bold;")
+                   tags$p("Principal Exports", style = "margin: 0; font-size: 10px; font-weight: bold;")
                )
              ),
              
-             # Agricultural Export Revenue Box
+             # Ordinary Exports Revenue Box
              column(
-               width = 4,
+               width = 2,
                div(style = "background: linear-gradient(135deg, #1e3c1e, #2d5a2d); 
                 padding: 20px; 
                 border-radius: 10px; 
@@ -193,22 +258,196 @@ ui <- navbarPage(
                 display: flex;
                 flex-direction: column;
                 justify-content: center;",
-                   tags$h3("$ 210.42.6 M", style = "margin: 0; font-size: 22px; font-weight: bold;"),
+                   tags$h3("$ 392.5 M", style = "margin: 0; font-size: 22px; font-weight: bold;"),
                    tags$p("Export Revenue 2024", style = "margin: 5px 0; font-size: 12px;"),
-                   tags$p("4.19% Increase From 2023", style = "margin: 5px 0; font-size: 12px; color: #90EE90;"),
+                   tags$p("5.7% Increase From 2023", style = "margin: 5px 0; font-size: 12px; color: #90EE90;"),
                    tags$hr(style = "border-color: #4CAF50; margin: 10px 0;"),
-                   tags$p("Cash Crops Export Revenue", style = "margin: 0; font-size: 10px; font-weight: bold;")
+                   tags$p("Ordinary Export Revenue", style = "margin: 0; font-size: 10px; font-weight: bold;")
+               )
+             ),
+             
+             # Re_Exports Revenue Box
+             column(
+               width = 2,
+               div(style = "background: linear-gradient(135deg, #1e3c1e, #2d5a2d); 
+                padding: 20px; 
+                border-radius: 10px; 
+                text-align: center;
+                color: white;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+                height: 120px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;",
+                   tags$h3("$ 698.3 M", style = "margin: 0; font-size: 22px; font-weight: bold;"),
+                   tags$p("Export Revenue 2024", style = "margin: 5px 0; font-size: 12px;"),
+                   tags$p("6.9% Increase From 2023", style = "margin: 5px 0; font-size: 12px; color: #90EE90;"),
+                   tags$hr(style = "border-color: #4CAF50; margin: 10px 0;"),
+                   tags$p("Re_Export Revenue", style = "margin: 0; font-size: 10px; font-weight: bold;")
+               )
+             ),
+             
+             # Adjustment Box
+             column(
+               width = 2,
+               div(style = "background: linear-gradient(135deg, #1e3c1e, #2d5a2d); 
+                padding: 20px; 
+                border-radius: 10px; 
+                text-align: center;
+                color: white;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+                height: 120px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;",
+                   tags$h3("$ 1,509.1 M", style = "margin: 0; font-size: 22px; font-weight: bold;"),
+                   tags$p("Export Revenue 2024", style = "margin: 5px 0; font-size: 12px;"),
+                   tags$p("70.7% Increase From 2023", style = "margin: 5px 0; font-size: 12px; color: #90EE90;"),
+                   tags$hr(style = "border-color: #4CAF50; margin: 10px 0;"),
+                   tags$p("Adjustments", style = "margin: 0; font-size: 10px; font-weight: bold;")
+               )
+             )
+            
+             
+           ),
+           #--- Trending News Section ---
+           br(),
+           fluidRow(
+             column(
+               width = 12,
+               tags$h2("LATEST TRADE NEWS", 
+                       style = "text-align:center; font-weight:bold; margin-bottom:20px; color:#021a0e; text-decoration: underline;"),
+               
+               # News carousel container
+               tags$div(
+                 id = "news-carousel",
+                 class = "news-carousel",
+                 
+                 # All articles ----
+                 tags$div(class = "news-slide",
+                          tags$img(src = "article1.jpg", class = "news-img"),
+                          tags$a("Read more →", href = "https://www.newtimes.co.rw/article/29759/news/economy/rwandas-trade-deficit-falls-by-125-in-quarter-2", 
+                                 target = "_blank", style = "color:#2d5a2d; font-weight:bold;")
+                 ),
+                 
+                 tags$div(class = "news-slide",
+                          tags$img(src = "article2.jpg", class = "news-img"),
+                          tags$a("Read more →", href = "https://www.newtimes.co.rw/article/30933/news/economy/tanzania-unrest-disrupts-rwanda-bound-cargo", 
+                                 target = "_blank", style = "color:#2d5a2d; font-weight:bold;")
+                 ),
+                 
+                 tags$div(class = "news-slide",
+                          tags$img(src = "article3.jpg", class = "news-img"),
+                          tags$a("Read more →", href = "https://www.newtimes.co.rw/article/29888/news/business/new-rule-who-can-get-paid-in-foreign-currency-in-rwanda", 
+                                 target = "_blank", style = "color:#2d5a2d; font-weight:bold;")
+                 ),
+                 
+                 tags$div(class = "news-slide",
+                          tags$img(src = "article4.jpg", class = "news-img"),
+                          tags$a("Read more →", href = "https://www.newtimes.co.rw/article/30069/opinions/africas-trade-future-in-a-fractured-global-economy", 
+                                 target = "_blank", style = "color:#2d5a2d; font-weight:bold;")
+                 ),
+                 
+                 tags$div(class = "news-slide",
+                          tags$img(src = "article5.jpg", class = "news-img"),
+                          tags$a("Read more →", href = "https://www.newtimes.co.rw/article/30259/video/what-next-for-us-africa-trade-after-expiry-of-agoa", 
+                                 target = "_blank", style = "color:#2d5a2d; font-weight:bold;")
+                 ),
+                 
+                 # Navigation buttons
+                 tags$button("❮", id = "prev-news", class = "news-btn left"),
+                 tags$button("❯", id = "next-news", class = "news-btn right")
                )
              )
            ),
-           # Adding ticker
+           
+           # CSS & JS ----
+           tags$style(HTML("
+ .news-carousel {
+  position: relative;
+  overflow: hidden;
+  max-width: 1100px;
+  margin: auto;
+ }
+ .news-slide {
+  flex: 0 0 32%;
+  background: #fff;
+  border-radius: 10px;
+  margin: 0 1%;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+  padding: 10px;
+  text-align: left;
+  transition: transform 0.3s ease;
+ }
+ .news-slide:hover {
+  transform: translateY(-5px);
+ }
+ .news-img {
+  width: 100%;
+  border-radius: 10px;
+ }
+ .news-wrapper {
+  display: flex;
+  transition: transform 0.5s ease;
+ }
+ .news-btn {
+  position: absolute;
+  top: 45%;
+  transform: translateY(-50%);
+  background-color: rgba(0,0,0,0.3);
+  color: white;
+  border: none;
+  font-size: 30px;
+  padding: 8px 14px;
+  cursor: pointer;
+  border-radius: 50%;
+  z-index: 10;
+ }
+ .news-btn.left { left: 5px; }
+ .news-btn.right { right: 5px; }
+ .news-btn:hover { background-color: rgba(0,0,0,0.6); }
+ #news-carousel-inner {
+  display: flex;
+  transition: transform 0.6s ease;
+ }
+  ")),
+           
+           tags$script(HTML("
+ document.addEventListener('DOMContentLoaded', function() {
+  const slides = Array.from(document.querySelectorAll('.news-slide'));
+  const container = document.createElement('div');
+  container.id = 'news-carousel-inner';
+  slides.forEach(s => container.appendChild(s));
+  document.getElementById('news-carousel').insertBefore(container, document.getElementById('prev-news'));
+
+  let currentIndex = 0;
+  const totalSlides = slides.length;
+  const visibleSlides = 3;
+  const slideWidth = slides[0].offsetWidth + 20;
+
+  function updateSlides() {
+    container.style.transform = `translateX(${-currentIndex * slideWidth}px)`;
+  }
+
+  document.getElementById('next-news').addEventListener('click', () => {
+    if (currentIndex < totalSlides - visibleSlides) currentIndex++;
+    updateSlides();
+  });
+  document.getElementById('prev-news').addEventListener('click', () => {
+    if (currentIndex > 0) currentIndex--;
+    updateSlides();
+  });
+ });
+  "))
+           ,
+           # ----------------- Adding ticker ------------------------------------
            br(),
            fluidRow(
              column(
                width = 12,
                div(class = "ticker-container",
                    div(class = "ticker-text",
-                       textOutput("news_ticker")
+                       "This website presents Rwanda’s trade and export data with key sections: Overview, Analytical Dashboard, Currency Insights, and Export Performance — helping users visualize and understand export trends effectively."
                    )
                )
              )
@@ -284,42 +523,245 @@ ui <- navbarPage(
              "))
            )
   ),
-  # ---------------- Analytical Dashboard ----------------
+  
+  #-------------------About Us-----------------------
+  
+  tabPanel(
+    "About",
+    div(
+      style = "
+    position: fixed;
+    top: 80px; /* same as header height */
+    left: 0;
+    width: 100%;
+    background-image: url('4to.png');
+    background-size: cover;
+    background-position: center;
+    padding: 50px;
+    text-align: center;
+    overflow: hidden;
+    z-index: 1500; /* below header, above charts */
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  ",
+      h2("ABOUT US: NDABAGA TEAM",
+         style = "font-weight: bold; color: #0E402D; z-index: 2; position: relative;"),
+      
+      tags$style("
+    .clouds {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: url('clouds.png') repeat-x;
+      animation: drift 60s linear infinite;
+      opacity: 0.3;
+      z-index: 1;
+    }
+    @keyframes drift {
+      0% { background-position: 0 0; }
+      100% { background-position: -1000px 0; }
+    }
+  "),
+      div(class = "clouds")
+    ),
+    
+    # Spacer to push the rest of the content below the fixed banner
+    tags$div(style = "height: 220px;"),
+    
+    # ----------- PAGE STYLE -----------
+    tags$style(HTML("
+    .about-card {
+      background: #ffffff;
+      border-left: 5px solid #0E402D;   /* Forest green */
+      padding: 20px 25px;
+      border-radius: 10px;
+      box-shadow: 0 3px 8px rgba(0,0,0,0.12);
+      margin-bottom: 25px;
+    }
+    
+    .about-title {
+      color: #0E402D;
+      font-weight: 700;
+      margin-bottom: 15px;
+    }
+
+    .value-tag {
+      background: #0E402D;
+      color: white;
+      padding: 6px 14px;
+      border-radius: 20px;
+      margin-right: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      display: inline-block;
+    }
+
+    /* Contact Cards */
+    .contact-card {
+      background: #0E402D;
+      color: white;
+      padding: 20px;
+      border-radius: 12px;
+      text-align: center;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.18);
+    }
+
+    .contact-icon {
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+  ")),
+    
+    # ----------- PAGE TITLE -----------
+    fluidRow(
+      
+      # LEFT CARD
+      column(
+        width = 6,
+        div(
+          class = "about-card",
+          h3("Problem Statement", class = "about-title"),
+          p("Rwanda’s export sector has made remarkable progress in value, quality, and global visibility over recent years. However, the market remains heavily dominated by traditional commodities such as coffee and tea, limiting broader diversification. Although global trade data is available, it is vast and difficult for policymakers, SMEs, and young innovators to interpret. This creates a gap in identifying emerging high-potential products and forecasting future opportunities—highlighting the need for a clear, data-driven intelligence system to support strategic export growth.")
+        )
+      ),
+      # ----------- VISION + MISSION + VALUES -----------
+      column(
+        width = 6,
+        div(
+          class = "about-card",
+          
+          # Vision + Mission Row
+          fluidRow(
+            column(
+              6,
+              h3("Vision", class = "about-title"),
+              p("To build a future where Rwanda becomes a globally competitive,
+           diversified, and innovation-driven export economy empowered by 
+           big data, youth participation, and intelligent forecasting.")
+            ),
+            column(
+              6,
+              h3("Mission", class = "about-title"),
+              p("To equip Rwanda with a data-driven intelligence system that
+           analyzes global trade patterns, predicts export demand using
+           machine learning, and delivers actionable insights for
+           policymakers, SMEs, and youth entrepreneurs.")
+            )
+          ),
+          
+          br(),
+          
+          # ----- VALUES CENTERED -----
+          div(style = "text-align:center;",
+              h3("Our Core Values", class = "about-title"),
+              div(
+                span(class = "value-tag", "Accuracy"),
+                span(class = "value-tag", "Innovation"),
+                span(class = "value-tag", "Excellence")
+              )
+          )
+        )
+      )
+    ),
+    
+    br(),
+    tags$h3(
+      "REACH OUT TO US", 
+      style = "color:#0E402D; font-weight:700; margin-bottom:20px; text-align:center;"
+    ),
+    
+    # ----------- CONTACT BOXES -----------
+    fluidRow(
+      tags$style(HTML("
+  .contact-card {
+    background: #ffffff;
+    color: #0E402D;
+    padding: 20px;
+    border-radius: 12px;
+    text-align: center;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.12);
+    border: 1px solid #0E402D33;
+  }
+
+  .contact-icon {
+    font-size: 28px;
+    margin-bottom: 8px;
+    color: #0E402D;
+  }
+")),
+      column(
+        width = 4,
+        div(
+          class = "contact-card",
+          div(icon("phone"), class = "contact-icon"),
+          strong("For inquiries"), br(),
+          "+ (250) 783757180"
+        )
+      ),
+      
+      column(
+        width = 4,
+        div(
+          class = "contact-card",
+          div(icon("envelope"), class = "contact-icon"),
+          strong("Email us"), br(),
+          tags$a(href = "https://mail.google.com/mail/u/0/?tab=rm&ogbl#inbox?compose=new", "gaellemuhimpundu@gmail.com", target = "_blank",
+                 style = "color: #0E402D;"),
+        )
+      ),
+      
+      column(
+        width = 4,
+        div(
+          class = "contact-card",
+          div(icon("map-marker-alt"), class = "contact-icon"),
+          strong("Address"), br(),
+          "Kigali, Rwanda"
+        )
+      )
+    )
+  ),   
+  
+  # ---------------- Analysis Dashboard ----------------
   tabPanel("Analytical Dashboard",
            # Dashboard Title with Background Image + Clouds ----
            div(
              style = "
-               position: relative;
-               background-image: url('Tea.png');
-               background-size: cover;
-               background-position: center;
-               padding: 60px;
-               border-radius: 10px;
-               text-align: center;
-               overflow: hidden;
-             ",
-             # Title text
+    position: fixed;
+    top: 80px; /* same as header height */
+    left: 0;
+    width: 100%;
+    background-image: url('Tea.png');
+    background-size: cover;
+    background-position: center;
+    padding: 50px;
+    text-align: center;
+    overflow: hidden;
+    z-index: 1500; /* below header, above charts */
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  ",
              h2("INTERACTIVE ANALYTICAL DASHBOARD",
                 style = "font-weight: bold; color: white; z-index: 2; position: relative;"),
              
-             # Clouds overlay
              tags$style("
-             .clouds {
-               position: absolute;
-               top: 0; left: 0;
-               width: 100%; height: 100%;
-               background: url('clouds.png') repeat-x;
-               animation: drift 60s linear infinite;
-               opacity: 0.3;
-               z-index: 1;
-             }
-             @keyframes drift {
-               0% { background-position: 0 0; }
-               100% { background-position: -1000px 0; }
-             }
-           "),
+    .clouds {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: url('clouds.png') repeat-x;
+      animation: drift 60s linear infinite;
+      opacity: 0.3;
+      z-index: 1;
+    }
+    @keyframes drift {
+      0% { background-position: 0 0; }
+      100% { background-position: -1000px 0; }
+    }
+  "),
              div(class = "clouds")
            ),
+           
+           # Spacer to push the rest of the content below the fixed banner
+           tags$div(style = "height: 220px;"),
            
            # Row 1: Big Line Chart ----
            tabItem(
@@ -341,13 +783,13 @@ ui <- navbarPage(
            # Row 2: Two Side-by-Side Charts ----
            fluidRow(
              box(
-               title = "2024 Export Trend",
-               width = 6,
-               solidHeader = FALSE,
-               status = "success",
-               height = "300px",
+               title = "2024 Export Trend", 
+               width = 6,                   
+               solidHeader = FALSE,           
+               status = "success", 
+               height = "300px",    
                selectInput(
-                 inputId = "commodity_choice",
+                 inputId = "commodity_choice",   
                  label = "Select Commodity",
                  choices = c("Total_Export", "Coffee", "Tea", "Pyrethrum", "Minerals_Combined","Cassiterite","Coltan","Wolfram","Other_Export","Hides & Skin"),  # match your column names
                  selected = "Total_Export"
@@ -393,20 +835,14 @@ ui <- navbarPage(
                tags$p("Source: NISR", style = "text-align: right; font-size: 12px; margin: 5px") 
              ),
              box(
-               title = "Regional Export Share",
+               title = "Contribution of Trade on GDP",
                width = 6,
                solidHeader = FALSE,
                status = "danger",
                height = "300px",
-               selectInput(
-                 inputId = "selected_quarter",
-                 label = "Select Quarter",
-                 choices = names(continents)[-1], 
-                 selected = "2025Q1"
-               ),
-               highchartOutput("region_share_pie", height = "210px"),  # reduced from 230px
+               highchartOutput("contribution_plot", height = "100%"),  # reduced from 230px
                div(
-                 tags$p(tags$b(tags$i("Source: NISR"))),
+                 tags$p(tags$b(tags$i("Source: MINECOFIN"))),
                  style = "text-align: right; font-size: 12px; margin: 5px;"
                )
              )
@@ -434,35 +870,43 @@ ui <- navbarPage(
              )
            )
   ),
-  # ---------------- Next Opportunity ----------------
+  # ---------------- Data Projection----------------
   tabPanel("Next Opportunity",
            fluidPage(
              # 🔝 Top Banner with Background Image and Transparent Title
              div(
                style = "
-               position: relative;
-               background-image: url('Top_Banner.jpg');
-               background-size: cover;
-               background-position: center;
-               padding: 60px;
-               border-radius: 10px;
-               text-align: center;
-               overflow: hidden;
-             ",
+    position: fixed;
+    top: 80px; /* height of your global header */
+    left: 0;
+    width: 100%;
+    background-image: url('Top_Banner.jpg');
+    background-size: cover;
+    background-position: center;
+    padding: 50px 20px;
+    text-align: center;
+    overflow: hidden;
+    z-index: 1500; /* below header, above content */
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  ",
                tags$h1(
                  "NEXT BIG EXPORT OPPORTUNITIES",
                  style = "
-                 background-color: rgba(0, 60, 0, 0.6);  /* darker green overlay */
-                 color: white;
-                 padding: 10px 20px;
-                 border-radius: 8px;
-                 font-weight: bold;
-                 font-size: 28px;
-                 display: inline-block;
-                 position: relative;
-               "
+      background-color: rgba(0, 60, 0, 0.6);  /* darker green overlay */
+      color: white;
+      padding: 10px 25px;
+      border-radius: 8px;
+      font-weight: bold;
+      font-size: 28px;
+      display: inline-block;
+      position: relative;
+    "
                )
              ),
+             
+             # Spacer to push the rest of the tab content below the fixed banner
+             tags$div(style = 'height: 220px;')
+             ,
              # 🌍 Main Section with World Map Background (transparent green overlay)
              div(
                style = "
@@ -483,7 +927,7 @@ ui <- navbarPage(
                      title = tags$div(
                        list(
                          tags$div(
-                           "Projected Top Export Commodities",
+                           "Projected Export Commodities",
                            style = "background: linear-gradient(135deg, #1e3c1e, #2d5a2d);
                color: white;
                text-align: center;
@@ -603,6 +1047,20 @@ ui <- navbarPage(
              )
            )
   ),
+  
+  #------------------ Market Linker Dashboard-------------------------
+  
+  tabPanel(
+    "Market Linker",
+    
+    tags$iframe(
+      src = "https://market-and-export-finder.vercel.app/",
+      style = "width:100%; height:800px; border:none;"
+    )
+  ),
+  
+  
+
   # ---------------- Forex Converter ----------------
   tabPanel(
     "Forex Converter",
@@ -610,43 +1068,55 @@ ui <- navbarPage(
       # Banner (title + subtitle inside same banner)
       div(
         style = "
-        position: relative;
-        background-image: url('forex_bg.png');
-        background-size: cover;
-        background-position: center;
-        padding: 60px;
-        border-radius: 10px;
-        text-align: center;
-        overflow: hidden;
-      ",
+    position: fixed;
+    top: 80px; /* height of global header */
+    left: 0;
+    width: 100%;
+    background-image: url('forex_bg.png');
+    background-size: cover;
+    background-position: center;
+    padding: 50px 20px;
+    text-align: center;
+    overflow: hidden;
+    z-index: 1500; /* below navbar, above content */
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  ",
+        
+        # Main title
         tags$h1(
           "FOREX CONVERTER",
           style = "
-          background-color: rgba(0, 60, 0, 0.6);
-          color: white;
-          padding: 10px 20px;
-          border-radius: 8px;
-          font-weight: bold;
-          font-size: 28px;
-          display: inline-block;
-          position: relative;
-          margin-bottom: 6px;
-          cursor: pointer;
-        "
+      background-color: rgba(0, 60, 0, 0.6);
+      color: white;
+      padding: 10px 25px;
+      border-radius: 8px;
+      font-weight: bold;
+      font-size: 28px;
+      display: inline-block;
+      position: relative;
+      margin-bottom: 6px;
+      cursor: pointer;
+    "
         ),
-        # subtitle inside same banner
-        tags$a( href = "https://www.bnr.rw/exchangeRate", target = "_blank",
-          "Powered by BNR Daily Exchange Rates",
+        
+        # Subtitle / link
+        tags$a(
+          href = 'https://www.bnr.rw/exchangeRate', target = '_blank',
+          'Powered by BNR Daily Exchange Rates',
           style = "
-          color: rgb(0,10,0);
-          font-weight: bold;
-          font-size: 12px;
-          margin-top: 0;
-          display: block;
-          cursor: pointer;
-        "
+      color: rgb(0,10,0);
+      font-weight: bold;
+      font-size: 12px;
+      margin-top: 0;
+      display: block;
+      cursor: pointer;
+    "
         )
       ),
+      
+      # Spacer to prevent overlap with fixed banner
+      tags$div(style = 'height: 220px;')
+      ,
       
       br(),
       tags$div(style = "height: 2px; background-color: darkgreen; margin: 10px 0;"), # Separation
@@ -740,21 +1210,26 @@ ui <- navbarPage(
       )
     )
   ),
+
+  
+  
   # ---------------- Footer ----------------
-  footer = div(
+  footer <- div(
     style = "background: linear-gradient(135deg, #1e3c1e, #2d5a2d); color: white; padding: 20px; margin-top: 30px;",
     fluidRow(
       # Left: Important Links
       column(
         width = 4,
-        tags$h4("Important Links", style = "font-weight: bold;"),
-        tags$ul(
-          tags$li(tags$a(href = "https://market-and-export-finder.vercel.app/", target = "_blank", "Market-Linker Platform", style = "color: white;")),
-          tags$li(tags$a(href = "https://www.naeb.gov.rw/", target = "_blank", "NAEB", style = "color: white;")),
-          tags$li(tags$a(href = "https://rdb.rw/", target = "_blank", "RDB", style = "color: white;"))
+        div(
+          tags$h4("Important Links", style = "font-weight: bold;"),
+          tags$ul(
+            tags$li(tags$a(href = "https://www.naeb.gov.rw/", target = "_blank", "NAEB", style = "color: white;")),
+            tags$li(tags$a(href = "https://rdb.rw/", target = "_blank", "RDB", style = "color: white;"))
+          )
         )
       ),
-      # Center: Logo + Event Info
+      
+      # Middle: Contact Us Section
       column(
         width = 4,
         align = "center",
@@ -763,9 +1238,10 @@ ui <- navbarPage(
           height = "60px",
           style = "margin-bottom: 10px;"
         ),
-        tags$p("NISR BIG DATA HACKATHON | © 2025",
+        tags$p("NISR BIG DATA HACKATHON 2025",
                style = "margin-top: 5px; font-weight: bold; font-size: 16px;")
       ),
+      
       # Right: About Us
       column(
         width = 4,
@@ -775,27 +1251,47 @@ ui <- navbarPage(
           tags$li(tags$a(href = "https://www.linkedin.com/in/gaelle-muhimpundu-0551732a3", target = "_blank", "Gaelle MUHIMPUNDU", style = "color: white;"))
         )
       )
+    ),
+    
+    # Add a subtle bottom line
+    tags$hr(style = "border-top: 1px solid #ccc; width: 80%; margin: 20px auto; opacity: 0.5;"),
+    div(
+      style = "text-align: center; font-size: 13px; color: #ffffff; font-weight: bold;",
+      "© 2025 Rwanda Export Data Dashboard | All rights reserved."
     )
   ),
-  
   # ---------------- Custom CSS ----------------
   header = tags$head(
     tags$style(HTML("
-      /* Push tabs to far right */
-      .navbar-nav {
-        margin-right: auto !important;
-      }
-      /* Control header height */
-      .navbar {
-        min-height: 80px;
-      }
-      /* Center tab labels vertically */
-      .navbar-nav > li > a {
-        line-height: 50px;
-        padding-top: 15px;
-        padding-bottom: 15px;
-      }
-    "))
+    /* Fix the top header */
+    .navbar {
+      position: fixed !important;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 2000; /* above everything else */
+      background-color: white; /* ensure solid background */
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+    
+    /* Add padding to body to avoid overlap */
+    body {
+      padding-top: 80px; /* match your navbar height */
+    }
+
+    /* Existing header adjustments */
+    .navbar-nav {
+      margin-right: auto !important;
+    }
+    .navbar {
+      min-height: 80px;
+    }
+    .navbar-nav > li > a {
+      line-height: 50px;
+      padding-top: 15px;
+      padding-bottom: 15px;
+    }
+  "))
   )
 )
 
@@ -909,7 +1405,7 @@ server <- function(input, output, session) {
       hc_add_series(
         data = df_top5[[input$quarter_choice]],
         name = "Exports (Million USD)",
-        color = "#1071cc"
+        color = "#0073C2FF"
       ) %>%
       hc_xAxis(categories = df_top5$Country) %>%
       hc_yAxis(title = list(text = "Exports (Million USD)")) %>%
@@ -1054,30 +1550,61 @@ server <- function(input, output, session) {
       hc_tooltip(pointFormat = "<b>{point.name}</b>: {point.value:,.2f} Million USD")
   })
   #==============PIE Chart of Continents========================================
-  output$region_share_pie <- renderHighchart({
-    req(input$selected_quarter)
+  output$contribution_plot <- renderHighchart({
     
-    # Prepare data
-    pie_data <- continents %>%
-      select(Continents, !!sym(input$selected_quarter)) %>%
-      rename(name = Continents, y = !!sym(input$selected_quarter)) %>%
-      mutate(color = custom_colors[seq_len(n())])# apply custom colors
+    df <- data.frame(
+      Year = c("2019/20","2020/21","2021/22","2022/23","2023/24"),
+      Contribution = c(0.0836, 0.0856, 0.10, 0.100, 0.111)
+    )
+    
+    forest_green <- "#0073C2FF"
+    
+    # Trend line values (linear regression)
+    trend_vals <- fitted(lm(Contribution ~ seq_along(Contribution), df))
     
     highchart() %>%
-      hc_chart(type = "pie") %>%
-      hc_add_series(
-        data = list_parse(pie_data),
-        name = NULL,
-        colorByPoint = TRUE
+      hc_xAxis(
+        categories = df$Year,
+        title = list(text = "Year")
       ) %>%
-      hc_tooltip(pointFormat = "<b>{point.name}</b>: {point.y:,.2f} Million USD") %>%
+      hc_yAxis(
+        title = list(text = "Contribution to GDP (%)"),
+        labels = list(format = "{value}%")
+      ) %>%
+      
+      # Bars in forest green
+      hc_add_series(
+        name = "Contribution to GDP",
+        data = round(df$Contribution * 100, 2),   # convert to percentages
+        type = "column",
+        color = forest_green
+      ) %>%
+      
+      # Trend line
+      hc_add_series(
+        name = "Trend",
+        data = round(trend_vals * 100, 2),        # convert trend to %
+        type = "line",
+        color = "#1b8552",
+        lineWidth = 3
+      ) %>%
+      
+      
+      hc_tooltip(
+        pointFormat = "<b>{point.y}%</b>"
+      ) %>%
+      
       hc_plotOptions(
-        pie = list(
-          dataLabels = list(enabled = TRUE, format = "<b>{point.name}</b>: {point.percentage:.1f}%"),
-          showInLegend = FALSE
+        series = list(
+          dataLabels = list(
+            enabled = TRUE,
+            format = "{y}%",
+            style = list(fontSize = "12px", fontWeight = "bold")
+          )
         )
       ) %>%
-      hc_title(text = NULL) 
+      
+      hc_exporting(enabled = TRUE)
   })
   # FOREX Converter
   output$forex_table <- DT::renderDT({
@@ -1186,10 +1713,6 @@ server <- function(input, output, session) {
       formatC(round(converted, 2), format = "f", big.mark = ",", digits = 2),
       " ", input$foreign_currency
     )
-  })
-  # Output for the ticker text
-  output$news_ticker <- renderText({
-    paste(trade_news(), collapse = " || ")
   })
   # Re_Export forecast
   output$forecast_plot <- renderHighchart({
